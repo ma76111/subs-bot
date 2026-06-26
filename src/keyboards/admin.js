@@ -28,6 +28,9 @@ function orderActionKeyboard(order) {
   if (order.status === 'processing') {
     buttons.push([Markup.button.callback('✔️ تم التنفيذ', `admin_order_complete_${order.id}`)]);
   }
+  if (order.status === 'completed') {
+    buttons.push([Markup.button.callback('📦 إعادة إرسال التسليم', `admin_order_resend_${order.id}`)]);
+  }
   buttons.push([Markup.button.callback('🔙 رجوع للطلبات', 'admin_orders')]);
   return Markup.inlineKeyboard(buttons);
 }

@@ -13,15 +13,21 @@ function setSetting(key, value) {
 
 function getOrCreateUser(telegramUser) {
   const fullName = telegramUser.first_name + (telegramUser.last_name ? ' ' + telegramUser.last_name : '');
-  const now = new Date().toISOString();
+  const ts = new Date().toISOString();
   const existing = db.prepare('SELECT * FROM users WHERE telegram_id = ?').get(telegramUser.id);
   if (existing) {
-    db.prepare('UPDATE users SET username = ?, full_name = ?, updated_at = ? WHERE telegram_id = ?')
-      .run(telegramUser.username || null, fullName, now, telegramUser.id);
-    return db.prepare('SELECT * FROM users WHERE telegram_id = ?').get(telegramUser.id);
+    // Only update if something changed to avoid unnecessary writes
+    if (existing.username !== (telegramUser.username || null) || existing.full_name !== fullName) {
+      db.prepare('UPDATE users SET username = ?, full_name = ?, updated_at = ? WHERE telegram_id = ?')
+        .run(telegramUser.username || null, fullName, ts, telegramUser.id);
+      existing.username = telegramUser.username || null;
+      existing.full_name = fullName;
+      existing.updated_at = ts;
+    }
+    return existing;
   }
   db.prepare('INSERT INTO users (telegram_id, username, full_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
-    .run(telegramUser.id, telegramUser.username || null, fullName, now, now);
+    .run(telegramUser.id, telegramUser.username || null, fullName, ts, ts);
   return db.prepare('SELECT * FROM users WHERE telegram_id = ?').get(telegramUser.id);
 }
 
@@ -116,12 +122,19 @@ function validateField(value, field) {
   return null;
 }
 
-function sendNotification(_, userId, message) {
+function sendNotification(_, userId, message, orderRef = null) {
   const bot = getBot();
   const user = db.prepare('SELECT telegram_id FROM users WHERE id = ?').get(userId);
   db.prepare('INSERT INTO notifications (user_id, message) VALUES (?, ?)').run(userId, message);
   if (user && bot) {
-    bot.telegram.sendMessage(user.telegram_id, `🔔 *إشعار جديد*\n\n${message}`, { parse_mode: 'Markdown' }).catch(() => {});
+    const opts = { parse_mode: 'Markdown' };
+    if (orderRef?.orderId) {
+      const { Markup } = require('telegraf');
+      opts.reply_markup = Markup.inlineKeyboard([
+        [Markup.button.callback('📦 تتبع الطلب', `user_order_${orderRef.orderId}`)],
+      ]).reply_markup;
+    }
+    bot.telegram.sendMessage(user.telegram_id, `🔔 *إشعار جديد*\n\n${message}`, opts).catch(() => {});
   }
 }
 

@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') });
 const { Telegraf } = require('telegraf');
 const { initDatabase } = require('./config/database');
 const { setBot } = require('./config/bot-instance');
@@ -11,9 +11,10 @@ const { showCategories, showServices, showServiceDetail, startOrderForm, handleF
 const { showBalance, startCharge, selectPaymentMethod, handleChargeInput, showChargeHistory, getChargeSession, clearChargeSession } = require('./handlers/user/balance');
 const { showOrders, showOrdersByStatus, showOrderDetail } = require('./handlers/user/orders');
 const { showNotifications, showProfile, showSupport, startSupportMessage, handleSupportMessage, hasSupportSession } = require('./handlers/user/misc');
+const { startRating, submitRating, handleRatingInput, hasRatingSession } = require('./handlers/user/ratings');
 
 // Admin handlers
-const { showAdminOrders, showOrderDetail: adminShowOrderDetail, acceptOrder, rejectOrder, processOrder, completeOrder, handleAdminNoteInput } = require('./handlers/admin/orders');
+const { showAdminOrders, showOrderDetail: adminShowOrderDetail, acceptOrder, rejectOrder, processOrder, completeOrder, handleAdminNoteInput, resendDelivery } = require('./handlers/admin/orders');
 const { showChargeRequests, showChargeDetail, acceptCharge, rejectCharge } = require('./handlers/admin/charges');
 const { showServicesMenu, showServicesList, showServiceItem, startAddService, startEditService, toggleService, deleteService, showFieldsMenu, startAddField, showFieldEdit, deleteField, handleAdminServiceInput, handleAdminServiceCallback } = require('./handlers/admin/services');
 const { showUsersMenu, showUsersList, startUserSearch, showUserDetail, toggleBan, startEditBalance, showUserOrders, handleUserAdminInput } = require('./handlers/admin/users');
@@ -97,6 +98,11 @@ bot.on('message', async (ctx, next) => {
     if (await handleSupportMessage(ctx)) return;
   }
 
+  // User rating comment
+  if (ctx.message.text && hasRatingSession(userId)) {
+    if (await handleRatingInput(ctx)) return;
+  }
+
   // User order form field input
   if (ctx.message.text || ctx.message.photo || ctx.message.document) {
     const session = getOrderSession(userId);
@@ -171,6 +177,13 @@ bot.on('callback_query', async (ctx) => {
   }
   if (data.startsWith('user_order_')) return showOrderDetail(ctx, parseInt(data.split('_')[2]));
 
+  // Rating callbacks
+  if (data.startsWith('rate_order_start_')) return startRating(ctx, parseInt(data.split('_')[3]));
+  if (data.startsWith('rate_order_')) {
+    const parts = data.split('_');
+    return submitRating(ctx, parseInt(parts[2]), parseInt(parts[3]));
+  }
+
   // ── Admin callbacks ──
   if (!isAdmin(adminId)) return ctx.reply('⛔ ليس لديك صلاحية.');
 
@@ -200,6 +213,7 @@ bot.on('callback_query', async (ctx) => {
   if (data.startsWith('admin_order_reject_')) return rejectOrder(ctx, parseInt(data.split('_')[3]));
   if (data.startsWith('admin_order_process_')) return processOrder(ctx, parseInt(data.split('_')[3]));
   if (data.startsWith('admin_order_complete_')) return completeOrder(ctx, parseInt(data.split('_')[3]));
+  if (data.startsWith('admin_order_resend_')) return resendDelivery(ctx, parseInt(data.split('_')[3]));
   if (data.startsWith('admin_order_')) return adminShowOrderDetail(ctx, parseInt(data.split('_')[2]));
 
   if (data.startsWith('admin_charge_accept_')) return acceptCharge(ctx, parseInt(data.split('_')[3]));

@@ -32,7 +32,9 @@ async function showServices(ctx, categoryId) {
 async function showServiceDetail(ctx, serviceId) {
   const svc = db.prepare('SELECT s.*, c.name as cat_name FROM services s LEFT JOIN categories c ON s.category_id = c.id WHERE s.id = ?').get(serviceId);
   if (!svc) return ctx.editMessageText('❌ الخدمة غير موجودة.');
-  const text = `*${svc.name}*\n\n📝 ${svc.description || 'لا يوجد وصف'}\n\n💰 السعر: *${formatCurrency(svc.price)}*\n⏱️ المدة: ${svc.duration || 'غير محدد'}\n📁 التصنيف: ${svc.cat_name || '-'}`;
+  const typeText = svc.service_type === 'subscription' ? '🔄 اشتراك' : '1️⃣ مرة واحدة';
+  const durationLine = svc.service_type === 'subscription' && svc.duration ? `\n⏱️ المدة: *${svc.duration}*` : '';
+  const text = `*${svc.name}*\n\n📝 ${svc.description || 'لا يوجد وصف'}\n\n💰 السعر: *${formatCurrency(svc.price)}*\n📌 النوع: ${typeText}${durationLine}\n📁 التصنيف: ${svc.cat_name || '-'}`;
   await ctx.editMessageText(text, { parse_mode: 'Markdown', ...serviceDetailKeyboard(serviceId) });
 }
 
@@ -213,6 +215,11 @@ async function confirmOrder(ctx, serviceId) {
     `✅ *تم إنشاء طلبك بنجاح!*\n\n🔖 رقم الطلب: \`${uuid}\`\n🛍️ الخدمة: ${svc.name}\n💰 المبلغ المخصوم: ${formatCurrency(svc.price)}\n\n⏳ طلبك قيد المراجعة، سيتم التواصل معك قريباً.`,
     { parse_mode: 'Markdown' }
   );
+
+  // Add pending timeline entry
+  const { db: dbRef } = require('../../config/database');
+  dbRef.prepare('INSERT INTO order_timeline (order_id, status, created_at) VALUES ((SELECT id FROM orders WHERE uuid = ?), ?, ?)')
+    .run(uuid, 'pending', new Date().toISOString());
 
   // Notify admins
   const adminIds = (process.env.ADMIN_IDS || '').split(',').map(id => parseInt(id.trim()));

@@ -36,7 +36,9 @@ function initDatabase() {
       name TEXT NOT NULL,
       description TEXT,
       price REAL NOT NULL,
+      service_type TEXT NOT NULL DEFAULT 'subscription',
       duration TEXT,
+      duration_days INTEGER,
       is_active INTEGER DEFAULT 1,
       sort_order INTEGER DEFAULT 0,
       created_at TEXT DEFAULT (datetime('now')),
@@ -70,10 +72,33 @@ function initDatabase() {
       status TEXT DEFAULT 'pending',
       field_data TEXT,
       admin_note TEXT,
+      delivery_details TEXT,
+      subscription_start TEXT,
+      subscription_end TEXT,
       created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now')),
       FOREIGN KEY (user_id) REFERENCES users(id),
       FOREIGN KEY (service_id) REFERENCES services(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS order_timeline (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_id INTEGER NOT NULL,
+      status TEXT NOT NULL,
+      note TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS order_ratings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_id INTEGER UNIQUE NOT NULL,
+      user_id INTEGER NOT NULL,
+      rating INTEGER NOT NULL CHECK(rating BETWEEN 1 AND 5),
+      comment TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (order_id) REFERENCES orders(id),
+      FOREIGN KEY (user_id) REFERENCES users(id)
     );
 
     CREATE TABLE IF NOT EXISTS charge_requests (
@@ -121,6 +146,36 @@ function initDatabase() {
       FOREIGN KEY (user_id) REFERENCES users(id)
     );
   `);
+
+  // Migrations for existing databases
+  const migrations = [
+    `ALTER TABLE services ADD COLUMN service_type TEXT NOT NULL DEFAULT 'subscription'`,
+    `ALTER TABLE services ADD COLUMN duration_days INTEGER`,
+    `ALTER TABLE orders ADD COLUMN delivery_details TEXT`,
+    `ALTER TABLE orders ADD COLUMN subscription_start TEXT`,
+    `ALTER TABLE orders ADD COLUMN subscription_end TEXT`,
+    `CREATE TABLE IF NOT EXISTS order_timeline (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_id INTEGER NOT NULL,
+      status TEXT NOT NULL,
+      note TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
+    )`,
+    `CREATE TABLE IF NOT EXISTS order_ratings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_id INTEGER UNIQUE NOT NULL,
+      user_id INTEGER NOT NULL,
+      rating INTEGER NOT NULL CHECK(rating BETWEEN 1 AND 5),
+      comment TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (order_id) REFERENCES orders(id),
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )`,
+  ];
+  for (const sql of migrations) {
+    try { db.exec(sql); } catch {} // ignore "already exists" or "duplicate column"
+  }
 
   // Default settings
   const defaultSettings = {

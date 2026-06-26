@@ -129,7 +129,7 @@ async function handleChargeInput(ctx) {
 }
 
 async function showChargeHistory(ctx) {
-  const charges = db.prepare('SELECT * FROM charge_requests WHERE user_id = ? ORDER BY created_at DESC').all(ctx.dbUser.id);
+  const charges = db.prepare('SELECT * FROM charge_requests WHERE user_id = ? ORDER BY created_at DESC LIMIT 50').all(ctx.dbUser.id);
   if (!charges.length) return ctx.editMessageText('📜 لا توجد عمليات شحن سابقة.');
 
   let text = '📜 *سجل الشحن:*\n\n';

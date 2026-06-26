@@ -61,7 +61,7 @@ async function startEditBalance(ctx, userId) {
 }
 
 async function showUserOrders(ctx, userId) {
-  const orders = db.prepare('SELECT o.*, s.name as service_name FROM orders o JOIN services s ON o.service_id = s.id WHERE o.user_id = ? ORDER BY o.created_at DESC').all(userId);
+  const orders = db.prepare('SELECT o.*, s.name as service_name FROM orders o JOIN services s ON o.service_id = s.id WHERE o.user_id = ? ORDER BY o.created_at DESC LIMIT 50').all(userId);
   if (!orders.length) return ctx.reply('📦 لا توجد طلبات لهذا المستخدم.');
   let text = '📦 *طلبات المستخدم:*\n\n';
   for (const o of orders) {

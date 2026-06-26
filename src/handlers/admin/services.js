@@ -34,14 +34,18 @@ async function showServiceItem(ctx, serviceId) {
   const svc = db.prepare('SELECT s.*, c.name as cat_name FROM services s LEFT JOIN categories c ON s.category_id = c.id WHERE s.id = ?').get(serviceId);
   if (!svc) return ctx.reply('❌ الخدمة غير موجودة.');
   const fieldsCount = db.prepare('SELECT COUNT(*) as c FROM service_fields WHERE service_id = ?').get(serviceId).c;
-  const text = `⚙️ *${svc.name}*\n\n📝 ${svc.description || 'لا يوجد وصف'}\n💰 السعر: ${formatCurrency(svc.price)}\n⏱️ المدة: ${svc.duration || '-'}\n📁 التصنيف: ${svc.cat_name || '-'}\n📋 الحقول: ${fieldsCount}\n🔘 الحالة: ${svc.is_active ? '🟢 مفعل' : '🔴 موقوف'}`;
+  const typeText = svc.service_type === 'subscription' ? '🔄 اشتراك' : '1️⃣ مرة واحدة';
+  const durationText = svc.service_type === 'subscription'
+    ? `\n⏱️ المدة: ${svc.duration || '-'} (${svc.duration_days ? svc.duration_days + ' يوم' : 'غير محدد'})`
+    : '';
+  const text = `⚙️ *${svc.name}*\n\n📝 ${svc.description || 'لا يوجد وصف'}\n💰 السعر: ${formatCurrency(svc.price)}\n📌 النوع: ${typeText}${durationText}\n📁 التصنيف: ${svc.cat_name || '-'}\n📋 الحقول: ${fieldsCount}\n🔘 الحالة: ${svc.is_active ? '🟢 مفعل' : '🔴 موقوف'}`;
   try { await ctx.editMessageText(text, { parse_mode: 'Markdown', ...serviceItemKeyboard(svc) }); }
   catch { await ctx.reply(text, { parse_mode: 'Markdown', ...serviceItemKeyboard(svc) }); }
 }
 
 async function startAddService(ctx) {
   adminSessions.set(ctx.from.id, { action: 'add_service', step: 'name' });
-  try { await ctx.editMessageText('➕ *إضافة خدمة جديدة*\n\nأدخل اسم الخدمة:'); }
+  try { await ctx.editMessageText('➕ *إضافة خدمة جديدة*\n\nأدخل اسم الخدمة:', { parse_mode: 'Markdown' }); }
   catch { await ctx.reply('➕ *إضافة خدمة جديدة*\n\nأدخل اسم الخدمة:', { parse_mode: 'Markdown' }); }
 }
 
@@ -49,13 +53,14 @@ async function startEditService(ctx, serviceId) {
   const svc = db.prepare('SELECT * FROM services WHERE id = ?').get(serviceId);
   adminSessions.set(ctx.from.id, { action: 'edit_service', serviceId, step: 'field' });
   const text = `✏️ *تعديل خدمة: ${svc.name}*\n\nاختر ما تريد تعديله:`;
-  const buttons = Markup.inlineKeyboard([
+  const buttons = [
     [Markup.button.callback('📛 الاسم', `svc_edit_field_name_${serviceId}`), Markup.button.callback('📝 الوصف', `svc_edit_field_desc_${serviceId}`)],
     [Markup.button.callback('💰 السعر', `svc_edit_field_price_${serviceId}`), Markup.button.callback('⏱️ المدة', `svc_edit_field_duration_${serviceId}`)],
+    [Markup.button.callback('🔢 أيام الاشتراك', `svc_edit_field_duration_days_${serviceId}`)],
     [Markup.button.callback('🔙 رجوع', `admin_svc_view_${serviceId}`)],
-  ]);
-  try { await ctx.editMessageText(text, { parse_mode: 'Markdown', ...buttons }); }
-  catch { await ctx.reply(text, { parse_mode: 'Markdown', ...buttons }); }
+  ];
+  try { await ctx.editMessageText(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) }); }
+  catch { await ctx.reply(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) }); }
 }
 
 async function startEditServiceField(ctx, field, serviceId) {
@@ -139,13 +144,26 @@ async function handleAdminServiceInput(ctx) {
     if (session.step === 'price') {
       const price = parseFloat(text);
       if (isNaN(price) || price <= 0) { await ctx.reply('❗ أدخل سعراً صحيحاً:'); return true; }
-      session.price = price; session.step = 'duration';
+      session.price = price; session.step = 'service_type';
       adminSessions.set(ctx.from.id, session);
-      await ctx.reply('⏱️ أدخل مدة الاشتراك (مثال: شهر، سنة) أو "-" لتخطي:');
+      await ctx.reply('📌 اختر نوع الخدمة:', {
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('🔄 اشتراك', 'svc_type_subscription')],
+          [Markup.button.callback('1️⃣ خدمة لمرة واحدة', 'svc_type_onetime')],
+        ]),
+      });
       return true;
     }
     if (session.step === 'duration') {
-      session.duration = text === '-' ? null : text; session.step = 'category';
+      session.duration = text === '-' ? null : text; session.step = 'duration_days';
+      adminSessions.set(ctx.from.id, session);
+      await ctx.reply('🔢 أدخل مدة الاشتراك بالأيام (مثال: 30، 90، 365):\n_يُستخدم في حساب تاريخ الانتهاء_', { parse_mode: 'Markdown' });
+      return true;
+    }
+    if (session.step === 'duration_days') {
+      const days = parseInt(text);
+      if (isNaN(days) || days <= 0) { await ctx.reply('❗ أدخل عدد أيام صحيح:'); return true; }
+      session.duration_days = days; session.step = 'category';
       adminSessions.set(ctx.from.id, session);
       const cats = db.prepare('SELECT * FROM categories WHERE is_active = 1').all();
       const buttons = cats.map(c => [Markup.button.callback(`${c.icon} ${c.name}`, `svc_setcat_${c.id}`)]);
@@ -169,6 +187,10 @@ async function handleAdminServiceInput(ctx) {
       db.prepare('UPDATE services SET description = ?, updated_at = ? WHERE id = ?').run(text, now(), serviceId);
     } else if (field === 'duration') {
       db.prepare('UPDATE services SET duration = ?, updated_at = ? WHERE id = ?').run(text, now(), serviceId);
+    } else if (field === 'duration_days') {
+      const days = parseInt(text);
+      if (isNaN(days) || days <= 0) { await ctx.reply('❗ عدد أيام غير صحيح.'); return true; }
+      db.prepare('UPDATE services SET duration_days = ?, updated_at = ? WHERE id = ?').run(days, now(), serviceId);
     }
     await ctx.reply('✅ تم التعديل بنجاح.');
     await showServiceItem(ctx, serviceId);
@@ -242,15 +264,41 @@ function handleAdminServiceCallback(ctx, data) {
     if (!session || session.action !== 'add_service') return false;
     const catId = parseInt(data.split('_')[2]) || null;
     adminSessions.delete(ctx.from.id);
-    db.prepare('INSERT INTO services (name, description, price, duration, category_id) VALUES (?, ?, ?, ?, ?)').run(session.name, session.description, session.price, session.duration, catId);
+    db.prepare('INSERT INTO services (name, description, price, service_type, duration, duration_days, category_id) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+      session.name, session.description, session.price,
+      session.service_type || 'subscription',
+      session.duration || null, session.duration_days || null, catId
+    );
     ctx.reply('✅ تم إضافة الخدمة بنجاح! يمكنك الآن إضافة الحقول من إدارة الحقول.', { ...Markup.inlineKeyboard([[Markup.button.callback('🔙 للخدمات', 'admin_services_list')]]) });
+    return true;
+  }
+
+  if (data.startsWith('svc_type_')) {
+    if (!session || session.action !== 'add_service') return false;
+    session.service_type = data.replace('svc_type_', '');
+    if (session.service_type === 'subscription') {
+      session.step = 'duration';
+      adminSessions.set(ctx.from.id, session);
+      ctx.reply('⏱️ أدخل مدة العرض للمستخدم (مثال: شهر، 3 أشهر، سنة):');
+    } else {
+      // onetime — skip duration
+      session.step = 'category';
+      session.duration = null; session.duration_days = null;
+      adminSessions.set(ctx.from.id, session);
+      const cats = db.prepare('SELECT * FROM categories WHERE is_active = 1').all();
+      const buttons = cats.map(c => [Markup.button.callback(`${c.icon} ${c.name}`, `svc_setcat_${c.id}`)]);
+      buttons.push([Markup.button.callback('➕ بدون فئة', 'svc_setcat_0')]);
+      ctx.reply('📁 اختر الفئة:', { ...Markup.inlineKeyboard(buttons) });
+    }
     return true;
   }
 
   if (data.startsWith('svc_edit_field_')) {
     const parts = data.split('_');
-    const field = parts[3];
-    const serviceId = parseInt(parts[4]);
+    // format: svc_edit_field_{fieldname}_{serviceId}
+    // field could be 'duration_days' (two parts) or single word
+    const serviceId = parseInt(parts[parts.length - 1]);
+    const field = parts.slice(3, parts.length - 1).join('_');
     startEditServiceField(ctx, field, serviceId);
     return true;
   }
